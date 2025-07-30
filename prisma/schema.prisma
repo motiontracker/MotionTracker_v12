@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SystemLog {
+  id        String      @id @default(uuid())
+  message   String
+  level     LogLevel    @default(INFO)
+  category  LogCategory
+  details   Json?
+  source    String?
+  timestamp DateTime    @default(now())
+  tenantId  String?     @map("tenant_id")
+  eventId   String?     @map("event_id")
+  userId    String?     @map("user_id")
+  ipAddress String?     @map("ip_address")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([level, category])
+  @@index([timestamp])
+  @@index([createdAt])
+  @@map("system_logs")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  // Relacionamentos para configurações do dashboard
+  dashboardConfigs DashboardConfig[]
+  dashboardCards   DashboardCardConfig[]
+
+  @@map("users")
+}
+
+model Tenant {
+  id                    String                 @id @default(uuid())
+  name                  String
+  slug                  String                 @unique
+  active                Boolean                @default(true)
+  status                String                 @default("ACTIVE")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  googleIntegrations    GoogleIntegration[]
+  googleAdsIntegrations GoogleAdsIntegration[]
+  events                Event[]
+  facebookIntegrations  FacebookIntegration[]
+  integrations          Integration[]
+  pixels                Pixel[]
+  users                 User[]
+  campaigns             Campaign[]
+
+  // Location Targeting Enhanced
+  locationTargetingConfigs      LocationTargetingConfig[]
+  targetingSuggestions          TargetingSuggestion[]
+  targetingPerformanceHistory   TargetingPerformanceHistory[]
+  customAudiences               CustomAudience[]
+  lookalikeAudiences            LookalikeAudience[]
+  FacebookCampaignRule          FacebookCampaignRule[]
+  FacebookCampaignRuleExecution FacebookCampaignRuleExecution[]
+
+  @@map("tenants")
+}
+
+model Pixel {
+  id          String   @id @default(uuid())
+  pixelId     String   @map("pixel_id")
+  accessToken String?  @map("access_token")
+  metaAppId   String?  @map("meta_app_id")
+  name        String
+  tenantId    String   @map("tenant_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@map("pixels")
+}
+
+model Event {
+  id               String            @id @default(uuid())
+  name             String
+  data             Json
+  url              String?
+  clientIp         String?           @map("client_ip")
+  userAgent        String?           @map("user_agent")
+  referrer         String?
+  pageTitle        String?           @map("page_title")
+  status           EventStatus       @default(PENDING)
+  error            String?
+  processedAt      DateTime?         @map("processed_at")
+  tenantId         String            @map("tenant_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  eventProcessings EventProcessing[]
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+
+  @@map("events")
+}
+
+model Integration {
+  id               String                   @id @default(uuid())
+  name             String
+  type             IntegrationType
+  platform         String? // Plataforma (FACEBOOK_ADS, GOOGLE_ADS, etc)
+  status           IntegrationStatus        @default(ACTIVE)
+  settings         Json
+  apiKey           String?                  @map("api_key")
+  tenantId         String                   @map("tenant_id")
+  active           Boolean                  @default(true)
+  isActive         Boolean                  @default(true) @map("is_active") // Alias para active
+  connectedAt      DateTime?                @map("connected_at")
+  lastSyncAt       DateTime?                @map("last_sync_at")
+  accessToken      String?                  @map("access_token")
+  refreshToken     String?                  @map("refresh_token")
+  tokenExpiresAt   DateTime?                @map("token_expires_at")
+  metadata         Json?
+  tags             Json?
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  eventProcessings EventProcessing[]
+  eventConfigs     IntegrationEventConfig[]
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, platform], name: "tenantId_platform")
+  @@index([tenantId, type])
+  @@index([type, status])
+  @@index([platform])
+  @@map("integrations")
+}
+
+model IntegrationEventConfig {
+  id            String      @id @default(uuid())
+  eventType     EventType   @map("event_type")
+  enabled       Boolean     @default(true)
+  customMapping String?     @map("custom_mapping")
+  integrationId String      @map("integration_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, eventType])
+  @@map("integration_event_configs")
+}
+
+model EventProcessing {
+  id            String           @id @default(uuid())
+  eventId       String           @map("event_id")
+  integrationId String           @map("integration_id")
+  platform      String
+  status        ProcessingStatus @default(PENDING)
+  response      Json?
+  error         String?
+  attempts      Int              @default(0)
+  sentAt        DateTime?        @map("sent_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  tenantId      String?          @map("tenant_id")
+  
+  // Facebook CAPI Official Fields Only
+  eventMatchScore     Float?   @map("event_match_score")      // Official: Event Match Quality (0-10)
+  deduplicationKey    String?  @map("deduplication_key")      // Official: event_id, external_id, fbp, etc
+  fbp                 String?  @map("fbp")                    // Official: Facebook browser ID
+  fbc                 String?  @map("fbc")                    // Official: Facebook click ID
+  fbEventId           String?  @map("fb_event_id")            // Official: Facebook event ID
+  clientIpAddress     String?  @map("client_ip_address")      // Official: IP for server events
+  userAgentData       String?  @map("user_agent_data")        // Official: User agent for server events
+  
+  event         Event            @relation(fields: [eventId], references: [id])
+  integration   Integration      @relation(fields: [integrationId], references: [id])
+
+  @@index([eventId, integrationId])
+  @@index([platform, status])
+  @@index([eventMatchScore])
+  @@index([fbp])
+  @@index([fbc])
+  @@index([deduplicationKey])
+  @@index([fbEventId])
+  @@map("event_processings")
+}
+
+model WhatsAppMessage {
+  id              String    @id @default(uuid())
+  whatsappId      String?   @map("whatsapp_id")
+  phoneNumberId   String    @map("phone_number_id")
+  from            String?
+  to              String?
+  messageType     String    @map("message_type")
+  content         Json
+  status          String
+  metadata        Json?
+  sentAt          DateTime? @map("sent_at")
+  receivedAt      DateTime? @map("received_at")
+  statusUpdatedAt DateTime? @map("status_updated_at")
+  tenantId        String    @map("tenant_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([phoneNumberId])
+  @@index([status])
+  @@index([tenantId])
+  @@index([sentAt])
+  @@index([receivedAt])
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppAttribution {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  messageId         String   @map("message_id")
+  whatsappMessageId String   @map("whatsapp_message_id")
+  phoneNumber       String   @map("phone_number")
+  eventType         String   @map("event_type")
+  eventTimestamp    DateTime @map("event_timestamp")
+  conversionValue   Float?   @map("conversion_value")
+  conversionType    String?  @map("conversion_type")
+  customAttributes  Json?    @map("custom_attributes")
+  campaignId        String?  @map("campaign_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([messageId])
+  @@index([eventType])
+  @@index([campaignId])
+  @@index([eventTimestamp])
+  @@map("whatsapp_attributions")
+}
+
+model WhatsAppConversation {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  phoneNumber          String    @map("phone_number")
+  type                 String
+  status               String
+  startTimestamp       DateTime  @map("start_timestamp")
+  endTimestamp         DateTime? @map("end_timestamp")
+  messageCount         Int       @default(1) @map("message_count")
+  cost                 Float     @default(0)
+  lastMessageTimestamp DateTime  @map("last_message_timestamp")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([phoneNumber])
+  @@index([type])
+  @@index([status])
+  @@index([startTimestamp])
+  @@map("whatsapp_conversations")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  tenantId  String           @map("tenant_id")
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  url       String?
+  category  String?
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([read])
+  @@map("notifications")
+}
+
+// ... [resto do schema com mais de 1000 linhas]
